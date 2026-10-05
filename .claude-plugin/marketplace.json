@@ -1,0 +1,17 @@
+{
+  "name": "sameer-mods",
+  "owner": {
+    "name": "Sameer Thapa",
+    "url": "https://github.com/sameerthapax"
+  },
+  "metadata": {
+    "description": "Claude Code mods: a knowledge health bar that Claude's edits drain and a project quiz refills."
+  },
+  "plugins": [
+    {
+      "name": "brain-bar",
+      "source": "./brain-bar",
+      "description": "A human-knowledge health bar that drains as Claude edits your code and refills when you pass a quiz about your own project."
+    }
+  ]
+}

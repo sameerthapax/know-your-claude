@@ -1,0 +1,13 @@
+# Written by Claude Code each time it loads a mod from a folder
+.claude-plugin/types/
+**/.claude-plugin/types/
+tsconfig.json
+
+# Switched off; replaced by brain-bar
+quest-dialog/
+
+# Sound player output
+*.log
+
+# Kept local, not published
+branch-tree/

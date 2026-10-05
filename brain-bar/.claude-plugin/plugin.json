@@ -1,0 +1,18 @@
+{
+  "name": "brain-bar",
+  "version": "1.0.0",
+  "description": "A human-knowledge health bar that drains as Claude edits your code and refills when you pass a quiz about your own project.",
+  "author": {
+    "name": "Sameer Thapa",
+    "url": "https://github.com/sameerthapax"
+  },
+  "displayName": "Brain Bar",
+  "homepage": "https://github.com/sameerthapax/know-your-claude/tree/main/brain-bar",
+  "repository": "https://github.com/sameerthapax/know-your-claude",
+  "keywords": [
+    "quiz",
+    "learning",
+    "health-bar",
+    "mod"
+  ]
+}
