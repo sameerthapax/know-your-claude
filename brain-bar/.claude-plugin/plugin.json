@@ -1,6 +1,6 @@
 {
   "name": "brain-bar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A human-knowledge health bar that drains as Claude edits your code and refills when you pass a quiz about your own project.",
   "author": {
     "name": "Sameer Thapa",

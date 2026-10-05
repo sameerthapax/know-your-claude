@@ -148,6 +148,58 @@ async function drain($, diff, file, isNewFile) {
   await maybeAutoOpen($)
 }
 
+// Files Claude changes through Bash (sed, a heredoc, a script) never pass
+// through Edit or Write, so each Bash call is bracketed by two looks at git:
+// every file git calls changed or untracked, with its text. A file whose text
+// differs between the two looks was changed by the command, and is measured
+// against its text before (or HEAD's, if it was clean then). Outside a git
+// repository nothing is measured.
+const SNAPSHOT_MAX_FILES = 300
+const SNAPSHOT_MAX_CHARS = 1_000_000
+
+async function gitTop($) {
+  const out = await run($, ['git', '-C', await $.session.root(), 'rev-parse', '--show-toplevel'])
+  return out.trim() || null
+}
+
+async function readText($, path) {
+  try {
+    if (!(await $.fs.exists(path))) return ''
+    const text = await $.fs.read(path)
+    // Binary or huge files are not lines of code
+    return text.length > SNAPSHOT_MAX_CHARS || text.includes('\u0000') ? null : text
+  } catch {
+    return null
+  }
+}
+
+// { path: text } for every changed or untracked file, paths relative to top
+async function snapshot($, top) {
+  const out = await run($, ['git', '-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  const entries = out.split('\0')
+  const files = new Map()
+  for (let i = 0; i < entries.length && files.size < SNAPSHOT_MAX_FILES; i++) {
+    const entry = entries[i]
+    if (entry.length < 4) continue
+    // A rename is followed by its old path, which is not a file to read
+    if (entry[0] === 'R' || entry[0] === 'C') i++
+    const path = entry.slice(3)
+    files.set(path, await readText($, top + '/' + path))
+  }
+  return files
+}
+
+async function drainShellChanges($, top, before, after) {
+  for (const [path, text] of after) {
+    if (text === null) continue
+    const wasDirty = before.has(path)
+    if (wasDirty && before.get(path) === text) continue
+    const old = wasDirty ? before.get(path) : await run($, ['git', '-C', top, 'show', 'HEAD:' + path])
+    if (old === null) continue
+    await drain($, lineDiff(old, text), top + '/' + path, old === '' && !wasDirty)
+  }
+}
+
 // Below 6,000 HP, while Claude is working, open the test once per turn
 async function maybeAutoOpen($) {
   if (hp >= LOW_HP || !isWorking || quiz || autoOpenedThisTurn) return
@@ -619,6 +671,15 @@ export function register(on) {
     }
     const r = await next(e)
     if (r && !r.deny && !r.isError) await drain($, lineDiff(before, e.content || ''), e.file_path, isNewFile)
+    return r
+  })
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const top = await gitTop($)
+    const before = top ? await snapshot($, top) : null
+    const r = await next(e)
+    // A failing command can still have written files, so isError is not checked
+    if (top && r && !r.deny) await drainShellChanges($, top, before, await snapshot($, top))
     return r
   })
 
