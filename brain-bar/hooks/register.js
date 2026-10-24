@@ -101,6 +101,96 @@ function shownHp() {
   return Math.round(anim.from + (anim.to - anim.from) * animProgress())
 }
 
+// ---------- desktop band ----------
+
+// The bar as three colored boxes sharing the row by flex weight, so it
+// stretches with the window the way the desktop lays out any row
+function barBoxes(Box, solid, ghost, color, ghostColor) {
+  const piece = (key, grow, backgroundColor) => Box({ key, width: 0, height: 1, flexGrow: grow, backgroundColor })
+  return [
+    piece('solid', solid, color),
+    piece('ghost', ghost, ghostColor),
+    piece('empty', 1 - solid - ghost, '#8884'),
+  ]
+}
+
+// Claude Code Desktop: everything on one row, the bar taking the room left over.
+// Narrow rows drop the change note first, then shorten the labels.
+async function desktopBand($, e, next) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const cols = typeof e.props.bodyColumns === 'number' ? e.props.bodyColumns : 120
+  const color = hpColor(hp)
+  const shown = shownHp()
+  const isHit = anim && anim.to < anim.from
+  const isHeal = anim && anim.to > anim.from
+  const blink = anim ? Math.floor(anim.ms / 150) % 2 === 0 : false
+
+  // Same pieces as the terminal bar, as fractions of the whole
+  let solid = hp / MAX_HP
+  let ghost = 0
+  let ghostColor = color
+  if (isHit) {
+    const edge = anim.from + (anim.to - anim.from) * animProgress()
+    ghost = Math.max(0, edge / MAX_HP - solid)
+    ghostColor = blink ? '#ff5f5f' : '#870000'
+  } else if (isHeal) {
+    solid = (anim.from + (anim.to - anim.from) * animProgress()) / MAX_HP
+    ghost = Math.max(0, hp / MAX_HP - solid)
+    ghostColor = blink ? '#d7ffd7' : '#87af87'
+  }
+  solid = Math.min(1, Math.max(0, solid))
+  ghost = Math.min(ghost, 1 - solid)
+
+  const fixed = (child, key) => Box({ key, flexShrink: 0, children: [child] })
+  const children = [
+    fixed(Text({ children: [isHit && anim.ms < 450 ? '💥' : '🧠'] }), 'icon'),
+    Box({
+      key: 'bar',
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 8,
+      flexDirection: 'row',
+      height: 1,
+      overflow: 'hidden',
+      children: barBoxes(Box, solid, ghost, color, ghostColor),
+    }),
+    fixed(
+      Text({
+        bold: true,
+        ...(isHit ? { color: '#ff8787' } : isHeal ? { color: '#afffaf' } : {}),
+        children: [shown.toLocaleString() + (cols >= 60 ? ' / 10,000 HP' : ' HP')],
+      }),
+      'hp',
+    ),
+  ]
+  if (lastDelta && cols >= 80) {
+    children.push(
+      Box({
+        key: 'delta',
+        flexShrink: 1,
+        minWidth: 0,
+        children: [
+          Text({
+            wrap: 'truncate-end',
+            color: lastDelta.value > 0 ? '#87af87' : '#d78787',
+            children: [(lastDelta.value > 0 ? '+' : '') + lastDelta.value + ' ' + lastDelta.note],
+          }),
+        ],
+      }),
+    )
+  }
+  if (quiz && quiz.isLoading) {
+    children.push(fixed(Text({ dimColor: true, children: [cols >= 50 ? 'writing your brain test…' : 'writing…'] }), 'status'))
+  } else if (quiz && !quiz.isDone) {
+    children.push(fixed(Text({ dimColor: true, children: [(cols >= 50 ? 'brain test ' : '') + (quiz.index + 1) + '/' + quiz.questions.length] }), 'status'))
+  } else if (!quiz) {
+    children.push(fixed(Button({ key: 'brain-test', label: cols >= 50 ? 'Test my brain' : 'Test', onPress: () => startFromButton($) }), 'button'))
+  }
+  const bar = Box({ flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 1, width: '100%', children })
+  const theirs = await next(e)
+  return Box({ flexDirection: 'column', children: theirs ? [bar, theirs] : [bar] })
+}
+
 // Lines added, changed, and deleted between two texts, by line content
 function lineDiff(before, after) {
   const count = (text) => {
@@ -706,6 +796,7 @@ export function register(on) {
   // The bar, always above the prompt; other mods' band drawing stays under it
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    if (e.surface === 'desktop') return desktopBand($, e, next)
     const { Box, Text, Button } = $.ui.resolve(e)
     const width = 40
     const cells = (v) => Math.round((Math.max(0, v) / MAX_HP) * width)
@@ -918,6 +1009,23 @@ export function register(on) {
     const choiceText = (c) => (isRoomy ? c : clip(c, optWidth))
 
     const rows = q.choices.map((choice, i) => {
+      // Desktop: the whole answer is one button, its letter the hotkey chip
+      // beside it; the app sends a mod no arrow keys, so nothing is highlighted
+      if (e.surface === 'desktop' && !fb) {
+        return Box({
+          key: 'card-' + i,
+          flexDirection: 'row',
+          children: [
+            Button({
+              key: 'ans-' + i,
+              label: choiceText(choice),
+              plain: true,
+              hotkey: LETTERS[i].toLowerCase(),
+              onPress: () => answer(i),
+            }),
+          ],
+        })
+      }
       const isSel = i === selected && !fb
       const isAnswer = i === q.answer
       const isPicked = fb && i === fb.picked
@@ -974,7 +1082,10 @@ export function register(on) {
 
     let footer
     if (!fb) {
-      footer = Text({ dimColor: true, children: [inner < 44 ? '↑↓ ⏎ esc' : '↑↓ SELECT   ⏎ CONFIRM   ESC QUIT'] })
+      footer =
+        e.surface === 'desktop'
+          ? Text({ dimColor: true, children: [inner < 44 ? 'Press A–D or click' : 'Press A, B, C or D on your keyboard, or click an answer'] })
+          : Text({ dimColor: true, children: [inner < 44 ? '↑↓ ⏎ esc' : '↑↓ SELECT   ⏎ CONFIRM   ESC QUIT'] })
     } else if (fb.isRight) {
       const won = Math.round(POINTS[q.difficulty] * Math.min(1, t / 8))
       const stars = Math.floor(t / 2) % 2 === 0 ? '★ ☆ ★' : '☆ ★ ☆'

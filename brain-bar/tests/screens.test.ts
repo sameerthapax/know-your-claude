@@ -105,3 +105,23 @@ test('a small pane still draws every answer, one line each', async ($, on) => {
   expect(await texts(ui)).toContain('…')
   await ui.press({ key: 'ans-1' })
 })
+
+test('on desktop each answer has its letter as a hotkey; the terminal has none', async ($, on) => {
+  const clock = mock.clock(on)
+  world(on, 9000, () => ({ value: { isAnswered: true, text: JSON.stringify(QUIZ), usage: USAGE } }))
+  await $.session.start({ cwd: '/repo' })
+  await $.command.run({ command: 'brain-test', args: '' })
+
+  const term = await $.ui.mount(PANE)
+  expect((await term.findAll({ type: 'Button' })).map((b: any) => b.props.hotkey)).toEqual([undefined, undefined, undefined, undefined])
+
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' as const })
+  expect((await desk.findAll({ type: 'Button' })).map((b: any) => b.props.hotkey)).toEqual(['a', 'b', 'c', 'd'])
+  expect(await texts(desk)).toContain('Press A, B, C or D on your keyboard, or click an answer')
+  expect((await desk.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['first', 'second', 'third', 'fourth'])
+  expect(await texts(desk)).not.toContain('[B]')
+  await desk.press({ key: 'ans-1' })
+  await clock.advance(1500)
+  expect(await texts(desk)).toContain('CORRECT')
+  await clock.advance(5000)
+})
